@@ -6,98 +6,147 @@ import ij.measure.ResultsTable;
 import ij.measure.Measurements;
 import ij.plugin.filter.Analyzer;
 
-import java.io.IOException;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class Main {
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) {
         var start = new Date();
-        analyze_with_thresh();
+
+        var files = checkFiles("/Users/matteo/develop/uni/ece-nps-analysis/data");
+
+        for (var file : files)
+            analyzeParticle(
+                    "/Users/matteo/develop/uni/ece-nps-analysis",
+                    Integer.parseInt(file.getName().split("_")[1])
+            );
+
         var end = new Date();
         System.out.println((end.getTime() - start.getTime()));
     }
 
-    public static void first() {
-        //        Opener opener = new Opener();
+    public static List<File> checkFiles(String path) {
+        System.out.println("Analyzing files...\n");
+        System.out.println("Checking file names");
 
-//        new ImageJ();
-//        var particle = IJ.openImage("/Users/matteo/develop/uni/ece-nps-java/ece-nps-java/src/main/java/org/nps/test/320-1.tif");
-//        var particle_bg = IJ.openImage("/Users/matteo/develop/uni/ece-nps-java/ece-nps-java/src/main/java/org/nps/test/320-2.tif");
-//
-//        IJ.run(particle, "Set Measurements...", "area mean min max integrated");
-//        IJ.run(particle,"Measure", "");
-//        IJ.run(particle_bg, "Set Measurements...", "area mean min max integrated");
-//        IJ.run(particle_bg,"Measure", "");
-//
-//        particle.show();
-//        particle_bg.show();
-        //
-//        var table = (ResultsTable) ResultsTable.getActiveTable().clone();
-//        var arr = new Variable[2];
-//        arr[0] = new Variable("First image");
-//        arr[1] = new Variable("Second image");
-//        table.setColumn("Image name", arr);
-//        table.show("My custom results");
+        var totalFiles = new File(path + "/total").listFiles();
+        var filteredTotalFiles = checkForWrongFileNames(
+                totalFiles,
+                "\\bparticle_[0-9]{1,}_total.tif\\b"
+        );
 
-//        var particle = opener.openImage("/Users/matteo/develop/uni/ece-nps-java/ece-nps-java/src/main/java/org/nps/test/320-1.tif");
-//        var particle_bg = IJ.openImage("/Users/matteo/develop/uni/ece-nps-java/ece-nps-java/src/main/java/org/nps/test/320-2.tif");
-//
-//        var rt = new ResultsTable();
-//        var p_analyzer = new Analyzer(particle, rt);
-//        var p_bg_analyzer = new Analyzer(particle_bg, rt);
-//
-//        p_analyzer.measure();
-//        p_bg_analyzer.measure();
-//
-//        rt.save("/Users/matteo/develop/uni/ece-nps-java/ece-nps-java/src/main/java/org/nps/test/res.csv");
-//
-//        particle.close();
-//        particle_bg.close();
+        var backgroundFiles = new File(path + "/background").listFiles();
+        var filteredBackgroundFiles = checkForWrongFileNames(
+                backgroundFiles,
+                "\\bparticle_[0-9]{1,}_bck.tif\\b"
+        );
+
+        assert backgroundFiles != null;
+        assert totalFiles != null;
+
+        System.out.println("Look for missing files");
+        checkCorresponding(filteredTotalFiles, filteredBackgroundFiles, "Corresponding background file not found.");
+        checkCorresponding(filteredBackgroundFiles, filteredTotalFiles, "Corresponding total file not found.");
+
+        System.out.println();
+
+        return filteredTotalFiles;
     }
 
-    public static void analyze() {
-        Opener opener = new Opener();
+    public static List<File> checkForWrongFileNames(File[] files, String regex) {
+        return Arrays.stream(files).filter((file -> {
 
-        var rt = new ResultsTable();
-        for (int i = 0; i < 36; i++) {
-            var particle = opener.openImage("/Users/matteo/develop/uni/ece-nps-java/ece-nps-java/data/" + i * 10 + ".bmp");
-            var analyzer = new Analyzer(particle, rt);
-            analyzer.measure();
-            particle.close();
+            if (!file.getName().matches(regex)) {
+                System.out.println("File " + file.getName() + " - skipped. File name not recognized.");
+                return false;
+            } else if (file.isDirectory()) {
+                System.out.println("Directory " + file.getName() + " - skipped. Directories are not allowed.");
+                return false;
+            }
+
+            return true;
+        })).collect(Collectors.toList());
+    }
+
+    public static void checkCorresponding(List<File> first, List<File> second, String error) {
+        var fileToRemove = new ArrayList<File>();
+
+        for (File firstFile : first) {
+            boolean hasCorresponding = false;
+            var t = Integer.parseInt(firstFile.getName().split("_")[1]);
+            for (File secondFile : second) {
+                var b = Integer.parseInt(secondFile.getName().split("_")[1]);
+                if (t == b) {
+                    hasCorresponding = true;
+                    break;
+                }
+            }
+
+            if (hasCorresponding) continue;
+
+            System.out.println("File " + firstFile.getName() + " - skipped. " + error);
+            fileToRemove.add(firstFile);
         }
 
-        rt.save("/Users/matteo/develop/uni/ece-nps-java/ece-nps-java/data/res.csv");
+        for (var file : fileToRemove)
+            first.remove(file);
     }
 
-    public static void analyze_with_thresh() throws IOException {
-        Opener opener = new Opener();
+    public static void analyzeParticle(String path, int particle) {
+        System.out.println("Analyzing particle " + particle);
 
+        var total = analyzeStack(path + "/data/total", "particle_" + particle + "_total.tif");
+        var background = analyzeStack(path + "/data/background", "particle_" + particle + "_bck.tif");
+
+        total.save(path + "/out/particle_" + particle + "_total.csv");
+        background.save(path + "/out/particle_" + particle + "_bck.csv");
+
+        var sub = new ResultsTable();
+
+        var totalMean = total.getColumn("Mean");
+        var backMean = background.getColumn("Mean");
+        var intDenTot = total.getColumn("IntDen");
+        var areaTot = total.getColumn("Area");
+
+        for (int i = 0; i < total.size(); i++) {
+            sub.addRow();
+            sub.addValue("Mean", totalMean[i] - backMean[i]);
+            sub.addValue("IntDen", intDenTot[i] - backMean[i] * areaTot[i]);
+        }
+
+        sub.save(path + "/out/particle_" + particle + "_results.csv");
+    }
+
+    public static ResultsTable analyzeStack(String path, String fileName) {
+        Opener opener = new Opener();
         int measurements = Measurements.AREA |
                 Measurements.MEAN |
                 Measurements.STD_DEV |
                 Measurements.MIN_MAX |
                 Measurements.INTEGRATED_DENSITY;
 
-        var rt = new ResultsTable();
-        for (int i = 0; i <= 36; i++) {
+        var rtTotal = new ResultsTable();
+        var stackTotal = opener
+                .openTiff(path, fileName)
+                .getStack();
 
-            var particle = opener.openImage("/Users/matteo/develop/uni/ece-nps-java/ece-nps-java/data/" + i * 10 + ".bmp");
-
-            // After the conversion the image is an 8-bit grayscale image
-            var particleByteProcessor = particle.getProcessor().convertToByte(false);
+        for (int i = 0; i < stackTotal.size(); i++) {
+            var particleByteProcessor = stackTotal.getProcessor(i + 1).convertToByte(false);
             particleByteProcessor.setThreshold(0, 255);
-            particle.close();
 
             var p = new ImagePlus();
             p.setImage(particleByteProcessor.createImage());
 
-            var analyzer = new Analyzer(p, measurements, rt);
+            var analyzer = new Analyzer(p, measurements, rtTotal);
             analyzer.measure();
-            particle.close();
         }
 
-        rt.deleteColumn("RawIntDen"); // TODO: ask what column has to be deleted between IntDen and RawIntDen
-        rt.save("/Users/matteo/develop/uni/ece-nps-java/ece-nps-java/out/res.csv");
+        rtTotal.deleteColumn("RawIntDen"); // TODO: ask what column has to be deleted between IntDen and RawIntDen
+        return rtTotal;
     }
 }
