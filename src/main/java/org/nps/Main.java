@@ -5,8 +5,13 @@ import ij.io.Opener;
 import ij.measure.ResultsTable;
 import ij.measure.Measurements;
 import ij.plugin.filter.Analyzer;
+import org.nps.errors.CouldNotFindBackgroundFilesException;
+import org.nps.errors.CouldNotFindTotalFilesException;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -15,39 +20,50 @@ import java.util.stream.Collectors;
 
 public class Main {
 
+    private static String EXECUTION_PATH;
+    private static String DATA_INPUT_PATH;
+    private static String DATA_OUTPUT_PATH;
+
     public static void main(String[] args) {
         var start = new Date();
 
-        var files = checkFiles("/Users/matteo/develop/uni/ece-nps-analysis/data");
+        try {
+            EXECUTION_PATH = System.getProperty("user.dir");
+            DATA_INPUT_PATH = EXECUTION_PATH + "/data";
+            DATA_OUTPUT_PATH = EXECUTION_PATH + "/results";
 
-        for (var file : files)
-            analyzeParticle(
-                    "/Users/matteo/develop/uni/ece-nps-analysis",
-                    Integer.parseInt(file.getName().split("_")[1])
-            );
+            System.out.println("Executing at => " + EXECUTION_PATH.replace("\\", "/"));
+
+            var files = checkFiles(DATA_INPUT_PATH);
+            for (var file : files)
+                analyzeParticle(Integer.parseInt(file.getName().split("_")[1]));
+
+        } catch (Exception e) {
+            System.out.println("An error occurred: " + e);
+        }
 
         var end = new Date();
-        System.out.println((end.getTime() - start.getTime()));
+        System.out.println();
+        System.out.println("Program ended. Execution time: " + (end.getTime() - start.getTime()) + " ms");
     }
 
-    public static List<File> checkFiles(String path) {
+    public static List<File> checkFiles(String path) throws CouldNotFindTotalFilesException, CouldNotFindBackgroundFilesException {
         System.out.println("Analyzing files...\n");
         System.out.println("Checking file names");
 
         var totalFiles = new File(path + "/total").listFiles();
+        if (totalFiles == null || totalFiles.length == 0) throw new CouldNotFindTotalFilesException();
         var filteredTotalFiles = checkForWrongFileNames(
                 totalFiles,
                 "\\bparticle_[0-9]{1,}_total.tif\\b"
         );
 
         var backgroundFiles = new File(path + "/background").listFiles();
+        if (backgroundFiles == null || backgroundFiles.length == 0) throw new CouldNotFindBackgroundFilesException();
         var filteredBackgroundFiles = checkForWrongFileNames(
                 backgroundFiles,
                 "\\bparticle_[0-9]{1,}_bck.tif\\b"
         );
-
-        assert backgroundFiles != null;
-        assert totalFiles != null;
 
         System.out.println("Look for missing files");
         checkCorresponding(filteredTotalFiles, filteredBackgroundFiles, "Corresponding background file not found.");
@@ -97,14 +113,15 @@ public class Main {
             first.remove(file);
     }
 
-    public static void analyzeParticle(String path, int particle) {
+    public static void analyzeParticle(int particle) throws IOException {
         System.out.println("Analyzing particle " + particle);
 
-        var total = analyzeStack(path + "/data/total", "particle_" + particle + "_total.tif");
-        var background = analyzeStack(path + "/data/background", "particle_" + particle + "_bck.tif");
+        var total = analyzeStack(DATA_INPUT_PATH + "/total", "particle_" + particle + "_total.tif");
+        var background = analyzeStack(DATA_INPUT_PATH + "/background", "particle_" + particle + "_bck.tif");
 
-        total.save(path + "/out/particle_" + particle + "_total.csv");
-        background.save(path + "/out/particle_" + particle + "_bck.csv");
+        Files.createDirectories(Paths.get(DATA_OUTPUT_PATH));
+        total.save(DATA_OUTPUT_PATH + "/particle_" + particle + "_total.csv");
+        background.save(DATA_OUTPUT_PATH + "/particle_" + particle + "_bck.csv");
 
         var sub = new ResultsTable();
 
@@ -119,7 +136,7 @@ public class Main {
             sub.addValue("IntDen", intDenTot[i] - backMean[i] * areaTot[i]);
         }
 
-        sub.save(path + "/out/particle_" + particle + "_results.csv");
+        sub.save(DATA_OUTPUT_PATH + "/particle_" + particle + "_results.csv");
     }
 
     public static ResultsTable analyzeStack(String path, String fileName) {
