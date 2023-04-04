@@ -1,0 +1,9 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="fluorescent-nanoparticles-analysis.main:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/fluorescent_nanoparticles_analysis_main_jar</output-path>
+    <root id="archive" name="fluorescent-nanoparticles-analysis.main.jar">
+      <element id="module-output" name="fluorescent-nanoparticles-analysis.main" />
+      <element id="module-source" name="fluorescent-nanoparticles-analysis.main" />
+    </root>
+  </artifact>
+</component>
